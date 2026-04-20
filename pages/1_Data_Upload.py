@@ -95,6 +95,41 @@ st.markdown(
         margin-top: 1.2rem;
         margin-bottom: 1.2rem;
     }
+
+    .preview-caption {
+        font-size: 0.95rem;
+        color: #5f6b7a;
+        margin: 0.2rem 0 0.6rem 0;
+    }
+
+    .preview-table-wrap {
+        max-height: 430px;
+        overflow: auto;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.8rem;
+        background: #ffffff;
+    }
+
+    .preview-table-wrap table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.92rem;
+    }
+
+    .preview-table-wrap thead th {
+        position: sticky;
+        top: 0;
+        background: #f8fafc;
+        z-index: 1;
+    }
+
+    .preview-table-wrap th,
+    .preview-table-wrap td {
+        border: 1px solid #e5e7eb;
+        padding: 0.45rem 0.6rem;
+        text-align: left;
+        white-space: nowrap;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -329,7 +364,7 @@ def read_feature_table(uploaded_file):
     suffix = Path(uploaded_file.name).suffix.lower()
     uploaded_file.seek(0)
 
-    if suffix == ".xlsx":
+    if suffix in [".xlsx", ".xls"]:
         raw_df = pd.read_excel(uploaded_file, header=None, engine="openpyxl")
     else:
         raw_df = pd.read_csv(uploaded_file, header=None, sep=None, engine="python")
@@ -368,7 +403,7 @@ def read_metadata_table(uploaded_file):
     suffix = Path(uploaded_file.name).suffix.lower()
     uploaded_file.seek(0)
 
-    if suffix == ".xlsx":
+    if suffix in [".xlsx", ".xls"]:
         df = pd.read_excel(uploaded_file, engine="openpyxl")
     else:
         df = pd.read_csv(uploaded_file, sep=None, engine="python")
@@ -385,7 +420,7 @@ def read_library_search_table(uploaded_file):
     suffix = Path(uploaded_file.name).suffix.lower()
     uploaded_file.seek(0)
 
-    if suffix == ".xlsx":
+    if suffix in [".xlsx", ".xls"]:
         df = pd.read_excel(uploaded_file, engine="openpyxl", dtype=object)
     else:
         text = decode_uploaded_text(uploaded_file)
@@ -818,21 +853,26 @@ def build_annotation_tables(
     sample_scan_keys,
     balance_scan_keys,
     attribute_scan_keys,
-    annotation_balance_threshold,
+    apply_balance_filter_to_annotation=False,
+    balance_threshold=None,
 ):
     all_features_clean_df = library_df.copy()
 
     scan_keys_series = library_df["#Scan#"].apply(normalize_scan_key)
     features_after_blank_removal_df = library_df.loc[scan_keys_series.isin(sample_scan_keys)].copy()
 
-    annotation_balance_series = pd.to_numeric(
-        library_df["Balance_score(percentage)"].apply(to_percentage_number),
-        errors="coerce",
-    )
-    balance_mask = scan_keys_series.isin(balance_scan_keys) & (annotation_balance_series >= annotation_balance_threshold)
-    features_after_balance_filter_df = library_df.loc[balance_mask].copy()
+    balance_mask = scan_keys_series.isin(balance_scan_keys)
+    attribute_mask = scan_keys_series.isin(attribute_scan_keys)
 
-    attribute_mask = scan_keys_series.isin(attribute_scan_keys) & (annotation_balance_series >= annotation_balance_threshold)
+    if apply_balance_filter_to_annotation and balance_threshold is not None:
+        annotation_balance_series = pd.to_numeric(
+            library_df["Balance_score(percentage)"].apply(to_percentage_number),
+            errors="coerce",
+        )
+        balance_mask = balance_mask & (annotation_balance_series >= balance_threshold)
+        attribute_mask = attribute_mask & (annotation_balance_series >= balance_threshold)
+
+    features_after_balance_filter_df = library_df.loc[balance_mask].copy()
     features_after_attribute_filter_df = library_df.loc[attribute_mask].copy()
 
     return {
@@ -864,8 +904,19 @@ def format_for_display_or_export(df):
 
 
 
-def display_table(df, use_container_width=True):
-    st.dataframe(format_for_display_or_export(df), use_container_width=use_container_width)
+def render_preview_table(
+    df: pd.DataFrame,
+    max_rows: int = 50,
+    height: int = 430,
+    preview_label: str = "Preview shown below (first 50 rows).",
+):
+    display_df = format_for_display_or_export(df).head(max_rows)
+    st.markdown(f"<div class='preview-caption'>{preview_label}</div>", unsafe_allow_html=True)
+    html_table = display_df.to_html(index=False, escape=False)
+    st.markdown(
+        f"<div class='preview-table-wrap' style='max-height:{height}px'>{html_table}</div>",
+        unsafe_allow_html=True,
+    )
 
 
 
@@ -904,7 +955,6 @@ def process_tables(
     normalization_method,
     library_search_file=None,
     do_annotation=False,
-    annotation_balance_threshold=65,
 ):
     feature_df = read_feature_table(feature_file)
     metadata_df = read_metadata_table(metadata_file)
@@ -1017,7 +1067,6 @@ def process_tables(
         "annotation_generated": False,
         "annotation_message": None,
         "library_search_filename": library_search_file.name if library_search_file is not None else None,
-        "annotation_balance_threshold": annotation_balance_threshold,
         "all_features_clean_df": pd.DataFrame(columns=LIBRARY_OUTPUT_COLUMNS),
         "features_after_blank_removal_df": pd.DataFrame(columns=LIBRARY_OUTPUT_COLUMNS),
         "features_after_balance_filter_df": pd.DataFrame(columns=LIBRARY_OUTPUT_COLUMNS),
@@ -1049,7 +1098,8 @@ def process_tables(
                     sample_scan_keys,
                     balance_scan_keys,
                     attribute_scan_keys,
-                    annotation_balance_threshold,
+                    apply_balance_filter_to_annotation=do_balance_filter,
+                    balance_threshold=balance_threshold if do_balance_filter else None,
                 )
 
                 annotation_results.update(built_annotation)
@@ -1129,14 +1179,14 @@ upload_col1, upload_col2, upload_col3 = st.columns([1, 1, 1])
 with upload_col1:
     feature_file = st.file_uploader(
         "Upload the GNPS Integral Table",
-        type=["csv", "xlsx", "tsv"],
+        type=["csv", "xlsx", "xls"],
         key="feature_table_uploader",
     )
 
 with upload_col2:
     metadata_file = st.file_uploader(
         "Upload the metadata table",
-        type=["csv", "xlsx","txt"],
+        type=["csv", "xlsx", "xls", "txt"],
         key="metadata_table_uploader",
     )
 
@@ -1148,7 +1198,7 @@ with upload_col2:
 with upload_col3:
     library_search_file = st.file_uploader(
         "Upload the Library Search file (optional)",
-        type=["csv", "tsv", "txt", "xlsx"],
+        type=["csv", "tsv", "txt", "xlsx", "xls"],
         key="library_search_uploader",
         help=(
             "Optional file used to generate annotation tables. The app will look for the columns "
@@ -1291,7 +1341,7 @@ if st.session_state["use_example_dataset"]:
         with preview_tab1:
             integral_preview = pd.read_excel(MODEL_INTEGRAL_PATH)
             st.caption(f"{integral_preview.shape[0]} rows × {integral_preview.shape[1]} columns")
-            st.dataframe(integral_preview.head(10), use_container_width=True)
+            render_preview_table(integral_preview, max_rows=10, height=320, preview_label="Preview shown below (first 10 rows).")
             st.download_button(
                 "Download full GNPS Integral Table",
                 data=MODEL_INTEGRAL_PATH.read_bytes(),
@@ -1303,7 +1353,7 @@ if st.session_state["use_example_dataset"]:
         with preview_tab2:
             metadata_preview = pd.read_excel(MODEL_METADATA_PATH)
             st.caption(f"{metadata_preview.shape[0]} rows × {metadata_preview.shape[1]} columns")
-            st.dataframe(metadata_preview.head(10), use_container_width=True)
+            render_preview_table(metadata_preview, max_rows=10, height=320, preview_label="Preview shown below (first 10 rows).")
             st.download_button(
                 "Download full metadata table",
                 data=MODEL_METADATA_PATH.read_bytes(),
@@ -1315,7 +1365,7 @@ if st.session_state["use_example_dataset"]:
         with preview_tab3:
             library_preview = pd.read_excel(MODEL_LIBRARY_PATH)
             st.caption(f"{library_preview.shape[0]} rows × {library_preview.shape[1]} columns")
-            st.dataframe(library_preview.head(10), use_container_width=True)
+            render_preview_table(library_preview, max_rows=10, height=320, preview_label="Preview shown below (first 10 rows).")
             st.download_button(
                 "Download full library-search table",
                 data=MODEL_LIBRARY_PATH.read_bytes(),
@@ -1383,7 +1433,6 @@ blank_cutoff = 0.30
 balance_threshold = 65
 attribute_filter_column = None
 attribute_filter_min_count = 3
-annotation_balance_threshold = 65
 normalization_method = "None"
 
 if do_blank_removal:
@@ -1445,25 +1494,18 @@ if do_attribute_filter:
     attribute_filter_min_count = st.session_state["attribute_filter_min_count_input"]
 
 if do_annotation:
-    st.number_input(
-        "Minimum Library Search balance score (%)",
-        min_value=0,
-        max_value=100,
-        value=65,
-        step=1,
-        key="annotation_balance_threshold_input",
-        help=(
-            "Used only for the annotation output table filtered after the balance step. "
-            "This corresponds to Balance_score(percentage) from the Library Search file."
-        ),
-    )
-    annotation_balance_threshold = st.session_state["annotation_balance_threshold_input"]
-
-    st.caption(
-        "The annotation step matches the scan IDs from the processed GNPS Integral Table outputs against the "
-        "Library Search file and returns all matching identifications. Multiple matches per feature "
-        "are preserved as separate rows."
-    )
+    if do_balance_filter:
+        st.caption(
+            f"The annotation step matches the scan IDs from the processed GNPS Integral Table outputs against the "
+            f"Library Search file and applies the same balance cutoff used in the Balance filter ({balance_threshold}%). "
+            "Multiple matches per feature are preserved as separate rows."
+        )
+    else:
+        st.caption(
+            "The annotation step matches the scan IDs from the processed GNPS Integral Table outputs against the "
+            "Library Search file and returns all matching identifications without applying a Library Search balance cutoff. "
+            "Multiple matches per feature are preserved as separate rows."
+        )
 
 if do_normalization:
     normalization_method = st.selectbox(
@@ -1515,7 +1557,6 @@ if run_processing:
                 normalization_method=normalization_method,
                 library_search_file=active_library_search_file,
                 do_annotation=do_annotation,
-                annotation_balance_threshold=annotation_balance_threshold,
             )
             st.session_state["processing_results"] = results
             st.success("Processing completed successfully!")
@@ -1531,7 +1572,14 @@ if run_processing:
 results = st.session_state["processing_results"]
 
 if results is None:
-    if not st.session_state["use_example_dataset"]:
+    required_inputs_ready = (
+        (feature_file is not None and metadata_file is not None)
+        or st.session_state["use_example_dataset"]
+    )
+
+    if required_inputs_ready:
+        st.success("Required files loaded. Ready to run preprocessing.")
+    else:
         st.info("Upload both tables or load the example dataset, choose the processing steps, and click 'Run processing'.")
 else:
     st.markdown("---")
@@ -1650,9 +1698,6 @@ else:
                 st.markdown(
                     f"- Rows in features_after_attribute_filter: **{results['n_annotation_after_attribute']}**"
                 )
-            st.markdown(
-                f"- Minimum Library Search balance score used: **{results['annotation_balance_threshold']}%**"
-            )
 
     st.markdown("---")
     st.markdown('<div class="section-title">Output tables</div>', unsafe_allow_html=True)
@@ -1691,7 +1736,7 @@ else:
                 "No features were assigned to the feature-blank table with the current blank-removal settings."
             )
         else:
-            display_table(results["features_blank_df"].head(50))
+            render_preview_table(results["features_blank_df"], max_rows=50, height=430)
 
         st.download_button(
             "Download feature-blank table (CSV)",
@@ -1703,7 +1748,7 @@ else:
 
     with st.expander("Feature-sample table after blank removal", expanded=False):
         st.write("Preview of the processed sample table before the balance score filter.")
-        display_table(results["features_sample_before_balance_df"].head(50))
+        render_preview_table(results["features_sample_before_balance_df"], max_rows=50, height=430)
         st.download_button(
             "Download feature-sample table after blank removal (CSV)",
             data=dataframe_to_csv_bytes(results["features_sample_before_balance_df"]),
@@ -1714,7 +1759,7 @@ else:
 
     with st.expander("Feature-sample table after balance score filter", expanded=False):
         st.write("Preview of the processed sample table after the balance score filter.")
-        display_table(results["features_sample_after_balance_df"].head(50))
+        render_preview_table(results["features_sample_after_balance_df"], max_rows=50, height=430)
         st.download_button(
             "Download feature-sample table after balance score filter (CSV)",
             data=dataframe_to_csv_bytes(results["features_sample_after_balance_df"]),
@@ -1728,7 +1773,7 @@ else:
             st.write(
                 "Preview of the processed sample table after applying the metadata-driven subgroup occurrence filter and before imputation."
             )
-            display_table(results["features_sample_after_attribute_df"].head(50))
+            render_preview_table(results["features_sample_after_attribute_df"], max_rows=50, height=430)
             st.download_button(
                 "Download feature-sample table after attribute occurrence filter (CSV)",
                 data=dataframe_to_csv_bytes(results["features_sample_after_attribute_df"]),
@@ -1740,7 +1785,7 @@ else:
     if results["imputation_requested"]:
         with st.expander("Feature-sample table after imputation", expanded=False):
             st.write("Preview of the processed sample table after imputation.")
-            display_table(results["features_sample_imputed_df"].head(50))
+            render_preview_table(results["features_sample_imputed_df"], max_rows=50, height=430)
             st.download_button(
                 "Download feature-sample table after imputation (CSV)",
                 data=dataframe_to_csv_bytes(results["features_sample_imputed_df"]),
@@ -1752,7 +1797,7 @@ else:
     if results["do_normalization"]:
         with st.expander("Feature-sample table after normalization", expanded=False):
             st.write("Preview of the processed sample table after normalization.")
-            display_table(results["features_sample_normalized_df"].head(50))
+            render_preview_table(results["features_sample_normalized_df"], max_rows=50, height=430)
             st.download_button(
                 "Download feature-sample table after normalization (CSV)",
                 data=dataframe_to_csv_bytes(results["features_sample_normalized_df"]),
@@ -1770,7 +1815,7 @@ else:
             if results["all_features_clean_df"].empty:
                 st.info("No annotation rows are available.")
             else:
-                display_table(results["all_features_clean_df"].head(50))
+                render_preview_table(results["all_features_clean_df"], max_rows=50, height=430)
 
             st.download_button(
                 "Download annotation table: all library matches (CSV)",
@@ -1788,7 +1833,7 @@ else:
             if results["features_after_blank_removal_df"].empty:
                 st.info("No annotation rows matched the feature-sample table after blank removal.")
             else:
-                display_table(results["features_after_blank_removal_df"].head(50))
+                render_preview_table(results["features_after_blank_removal_df"], max_rows=50, height=430)
 
             st.download_button(
                 "Download annotation table after blank removal (CSV)",
@@ -1799,14 +1844,19 @@ else:
             )
 
         with st.expander("Annotation table after balance score filter", expanded=False):
-            st.write(
-                "Library Search matches whose #Scan# values are present in the balance-filtered GNPS Integral Table and whose Balance_score(percentage) meets the annotation cutoff. Multiple matches per entry are retained."
-            )
+            if results["balance_filter_requested"]:
+                st.write(
+                    "Library Search matches whose #Scan# values are present in the balance-filtered GNPS Integral Table. The same balance cutoff used in the Balance filter is applied to the library matches as well. Multiple matches per entry are retained."
+                )
+            else:
+                st.write(
+                    "Library Search matches whose #Scan# values are present in the processed GNPS Integral Table at this step. No Library Search balance cutoff is applied because the Balance filter is disabled. Multiple matches per entry are retained."
+                )
 
             if results["features_after_balance_filter_df"].empty:
-                st.info("No annotation rows matched the balance-filtered GNPS Integral Table with the current annotation cutoff.")
+                st.info("No annotation rows matched the balance-filtered GNPS Integral Table with the current settings.")
             else:
-                display_table(results["features_after_balance_filter_df"].head(50))
+                render_preview_table(results["features_after_balance_filter_df"], max_rows=50, height=430)
 
             st.download_button(
                 "Download annotation table after balance score filter (CSV)",
@@ -1818,14 +1868,19 @@ else:
 
         if results["attribute_filter_requested"]:
             with st.expander("Annotation table after attribute occurrence filter", expanded=False):
-                st.write(
-                    "Library Search matches whose #Scan# values are present in the attribute-filtered GNPS Integral Table and whose Balance_score(percentage) meets the annotation cutoff. Multiple matches per entry are retained."
-                )
+                if results["balance_filter_requested"]:
+                    st.write(
+                        "Library Search matches whose #Scan# values are present in the attribute-filtered GNPS Integral Table. The same balance cutoff used in the Balance filter is applied to the library matches as well. Multiple matches per entry are retained."
+                    )
+                else:
+                    st.write(
+                        "Library Search matches whose #Scan# values are present in the attribute-filtered GNPS Integral Table. No Library Search balance cutoff is applied because the Balance filter is disabled. Multiple matches per entry are retained."
+                    )
 
                 if results["features_after_attribute_filter_df"].empty:
-                    st.info("No annotation rows matched the attribute-filtered GNPS Integral Table with the current annotation cutoff.")
+                    st.info("No annotation rows matched the attribute-filtered GNPS Integral Table with the current settings.")
                 else:
-                    display_table(results["features_after_attribute_filter_df"].head(50))
+                    render_preview_table(results["features_after_attribute_filter_df"], max_rows=50, height=430)
 
                 st.download_button(
                     "Download annotation table after attribute occurrence filter (CSV)",
