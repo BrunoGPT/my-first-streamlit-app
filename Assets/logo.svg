@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="520" viewBox="0 0 1800 520">
+  <defs>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.04"/>
+    </filter>
+  </defs>
+  <g filter="url(#soft)">
+    <text x="90" y="250" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="172" font-weight="800" letter-spacing="-4">
+      <tspan fill="#009C3B">GC</tspan><tspan fill="#0B1F4D">Meta</tspan><tspan fill="#FFCC29">Prep</tspan>
+    </text>
+    <text x="102" y="395" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="60" font-weight="700" letter-spacing="4" fill="#8090A8">GC–MS METABOLOMICS PREPROCESSING</text>
+  </g>
+</svg>
