@@ -1,7 +1,7 @@
 from pathlib import Path
 import streamlit as st
 
-st.set_page_config(page_title="GCMetaPrep | Home", layout="wide")
+st.set_page_config(page_title="GCMetaPrep | Home", page_icon="🧪", layout="wide")
 
 BASE_DIR = Path(__file__).resolve().parent
 LOGO_PATH = BASE_DIR / "Assets" / "logo.svg"
@@ -196,8 +196,8 @@ st.markdown('<div class="subsection-title">What the app does</div>', unsafe_allo
 st.markdown(
     """
     <div class="plain-text">
-        Load a GNPS Integral Table containing GC-MS metabolomic features together with a metadata table,
-        apply selected preprocessing steps, optionally include a library-search table for annotation matching,
+        Load a GNPS Integral Table containing GC-MS metabolomic features together with a Metadata Table,
+        apply selected preprocessing steps, optionally include a Library Search Table for annotation matching,
         and export processed tables for downstream analysis.
     </div>
     """,
@@ -221,9 +221,9 @@ st.markdown(
     <div class="essentials-card">
         <div class="essentials-title">Required inputs</div>
         <ul>
-            <li><strong>Required:</strong> GNPS Integral Table and metadata table</li>
-            <li><strong>Optional:</strong> library-search table for annotation matching</li>
-            <li>Metadata should follow the expected <a href="https://ccms-ucsd.github.io/GNPSDocumentation/metadata/" target="_blank">GNPS metadata structure</a></li>
+            <li><strong>Required:</strong> GNPS Integral Table and Metadata Table</li>
+            <li><strong>Optional:</strong> Library Search Table for annotation matching</li>
+            <li>The Metadata Table should follow the expected <a href="https://ccms-ucsd.github.io/GNPSDocumentation/metadata/" target="_blank">GNPS metadata structure</a></li>
         </ul>
     </div>
     """,
@@ -234,13 +234,13 @@ with st.expander("🔎 Need help finding these files?"):
     st.markdown(
         """
         <div class="help-text">
-            Open the tab corresponding to the file you need help locating.
+            Use the tabs below for a quick guide to the required and optional input files.
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    tab1, tab2, tab3 = st.tabs(["GNPS Integral Table", "Library-search table", "Metadata sheet"])
+    tab1, tab2, tab3 = st.tabs(["GNPS Integral Table", "Metadata Table", "Library Search Table"])
 
     with tab1:
         st.markdown("**1. GNPS Integral Table**")
@@ -260,12 +260,31 @@ with st.expander("🔎 Need help finding these files?"):
             st.info("Integral-table screenshot not found. Check the file name in the Assets folder.")
 
     with tab2:
-        st.markdown("**2. Library-search table**")
+        st.markdown("**2. Metadata Table**")
         st.markdown(
             """
             <div class="help-text">
-                The table containing all hits found by the GNPS workflow is the
-                <strong>View All Library Hits</strong> table, generated after the second step of the GNPS workflow
+                The Metadata Table describes the samples included in the analysis and should follow the
+                <a href="https://ccms-ucsd.github.io/GNPSDocumentation/metadata/" target="_blank">GNPS metadata structure</a>.<br>
+                See an example of the expected Metadata Table structure below:
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if METADATA_HELP_PATH.exists():
+            st.image(str(METADATA_HELP_PATH), use_container_width=True)
+        else:
+            st.info("Metadata screenshot not found. Check the file name in the Assets folder.")
+
+    with tab3:
+        st.markdown("**3. Library Search Table**")
+        st.markdown(
+            """
+            <div class="help-text">
+                The Library Search Table contains the hits returned by the GNPS workflow.
+                In practice, this corresponds to the <strong>View All Library Hits</strong> table,
+                generated after the second step of the GNPS workflow
                 (<strong>Library Search/Networking</strong>).
             </div>
             """,
@@ -276,24 +295,6 @@ with st.expander("🔎 Need help finding these files?"):
             st.image(str(LIBRARY_HELP_PATH), use_container_width=True)
         else:
             st.info("Library-table screenshot not found. Check the file name in the Assets folder.")
-
-    with tab3:
-        st.markdown("**3. Metadata sheet**")
-        st.markdown(
-            """
-            <div class="help-text">
-            The metadata sheet describes the samples included in the analysis and should follow the
-            <a href="https://ccms-ucsd.github.io/GNPSDocumentation/metadata/" target="_blank">GNPS metadata structure</a>.<br>
-            See an example of the expected metadata structure below:
-                </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if METADATA_HELP_PATH.exists():
-            st.image(str(METADATA_HELP_PATH), use_container_width=True)
-        else:
-            st.info("Metadata screenshot not found. Check the file name in the Assets folder.")
 
 st.markdown('<div class="section-title">Workflow overview</div>', unsafe_allow_html=True)
 
@@ -306,7 +307,7 @@ with c1:
             <div class="step-number">1</div>
             <div class="step-title">Upload</div>
             <div class="step-text">
-                Upload the GNPS Integral Table, metadata table, and optional library-search table.
+                Upload the GNPS Integral Table, Metadata Table, and optional Library Search Table.
             </div>
         </div>
         """,
@@ -360,7 +361,7 @@ st.markdown(
     """
     <div class="plain-text">
         Depending on the selected steps, the app can generate blank-filtered, balance-filtered,
-        attribute-filtered, imputed, normalized, and annotation tables.
+        attribute-filtered, imputed, normalized, and annotation tables from the uploaded GNPS Integral Table, Metadata Table, and optional Library Search Table.
     </div>
     """,
     unsafe_allow_html=True,
@@ -369,7 +370,7 @@ st.markdown(
 st.markdown(
     """
     <div class="callout-note">
-        💡 <strong>Next step:</strong> Use the page menu on the left to continue to the data upload and preprocessing workflow.
+        💡 <strong>Next step:</strong> Use the page menu on the left to continue to the Data Upload and preprocessing workflow.
     </div>
     """,
     unsafe_allow_html=True,
