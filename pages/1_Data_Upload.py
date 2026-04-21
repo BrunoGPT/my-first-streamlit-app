@@ -11,7 +11,11 @@ import streamlit as st
 # PAGE STYLE
 # =========================================================
 
-st.set_page_config(page_title="Data Upload", layout="wide")
+st.set_page_config(
+    page_title="GCMetaPrep | Data Upload",
+    page_icon="🧪",
+    layout="wide",
+)
 
 st.markdown(
     """
@@ -140,14 +144,8 @@ st.markdown(
 # =========================================================
 
 st.title("Data Upload")
-st.markdown(
-    """
-    <div class="small-note">
-    Upload the GNPS Integral Table and the metadata table, choose the preprocessing
-    steps you want to apply, and run the processing.
-    </div>
-    """,
-    unsafe_allow_html=True,
+st.info(
+    "📥 Upload the GNPS Integral Table and the Metadata Table, and optionally the Library Search Table for annotation; then choose the preprocessing steps you want to apply and run the processing."
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -409,7 +407,7 @@ def read_metadata_table(uploaded_file):
         df = pd.read_csv(uploaded_file, sep=None, engine="python")
 
     if df.empty:
-        raise ValueError("The metadata table is empty.")
+        raise ValueError("The Metadata Table is empty.")
 
     df.columns = [str(col).strip() for col in df.columns]
     return df
@@ -428,7 +426,7 @@ def read_library_search_table(uploaded_file):
         df = pd.read_csv(StringIO(text), sep=delimiter, dtype=object)
 
     if df.empty:
-        raise ValueError("The Library Search file is empty.")
+        raise ValueError("The Library Search Table is empty.")
 
     df.columns = [str(col).strip() for col in df.columns]
 
@@ -438,7 +436,7 @@ def read_library_search_table(uploaded_file):
         normalized_name = normalize_header_key(required_col)
         matched_col = header_map.get(normalized_name)
         if matched_col is None:
-            raise ValueError(f'Column "{required_col}" was not found in the Library Search file.')
+            raise ValueError(f'Column "{required_col}" was not found in the Library Search Table.')
         selected_columns.append(matched_col)
 
     out = df[selected_columns].copy()
@@ -493,7 +491,7 @@ def match_feature_columns_to_metadata(feature_df, metadata_df):
 
     if sampletype_col is None:
         raise ValueError(
-            "Could not identify the sample type column in the metadata table. "
+            "Could not identify the sample type column in the Metadata Table. "
             "Please make sure it contains something like 'ATTRIBUTE_sampletype'."
         )
 
@@ -988,7 +986,7 @@ def process_tables(
 
     if not sample_cols:
         raise ValueError(
-            "No sample columns were identified. Please check the metadata and the GNPS Integral Table column names."
+            "No sample columns were identified. Please check the Metadata Table and the GNPS Integral Table column names."
         )
 
     enriched_df = add_blank_metrics(feature_df, sample_cols, blank_cols)
@@ -1108,7 +1106,7 @@ def process_tables(
     if do_annotation:
         if library_search_file is None:
             annotation_results["annotation_message"] = (
-                "Annotation table was requested, but no Library Search file was uploaded. "
+                "Annotation table was requested, but no Library Search Table was uploaded. "
                 "The step was skipped."
             )
         else:
@@ -1212,19 +1210,19 @@ with upload_col1:
 
 with upload_col2:
     metadata_file = st.file_uploader(
-        "Upload the metadata table",
+        "Upload the Metadata Table",
         type=["csv", "xlsx", "xls", "txt"],
         key="metadata_table_uploader",
     )
 
     st.caption(
-        "⚠️ If you plan to use blank removal, the metadata table should contain a sample-type column "
+        "⚠️ If you plan to use blank removal, the Metadata Table should contain a sample-type column "
         "such as `ATTRIBUTE_sampletype` so the app can distinguish analytical samples from blanks."
     )
 
 with upload_col3:
     library_search_file = st.file_uploader(
-        "Upload the Library Search file (optional)",
+        "Upload the Library Search Table (optional)",
         type=["csv", "tsv", "txt", "xlsx", "xls"],
         key="library_search_uploader",
         help=(
@@ -1241,7 +1239,7 @@ with st.expander("🔎 Need help finding these files?", expanded=False):
     )
 
     tab1, tab2, tab3 = st.tabs(
-        ["1. GNPS Integral Table", "2. Library-search table", "3. Metadata sheet"]
+        ["1. GNPS Integral Table", "2. Metadata Table", "3. Library Search Table"]
     )
 
     with tab1:
@@ -1253,7 +1251,7 @@ with st.expander("🔎 Need help finding these files?", expanded=False):
         st.markdown(
             """
 1. Open the results from the **Data Processing / Deconvolution** step in GNPS.  
-2. Locate the exported table corresponding to the **integral table** output.  
+2. Locate the exported table corresponding to the **GNPS Integral Table** output.  
 3. Download that file and upload it here as the main quantitative input table.
             """
         )
@@ -1268,9 +1266,36 @@ with st.expander("🔎 Need help finding these files?", expanded=False):
             st.warning("Integral_table.png was not found in the Assets folder.")
 
     with tab2:
-        st.markdown("**2. Library-search table**")
+        st.markdown("**2. Metadata Table**")
         st.markdown(
-            "The library-search table contains the hits returned by the GNPS workflow. "
+            "The Metadata Table describes the samples included in the analysis and should follow "
+            "the [GNPS metadata structure](https://ccms-ucsd.github.io/GNPSDocumentation/metadata/)."
+        )
+        st.markdown(
+            "Sample names in the Metadata Table must match the sample columns in the GNPS Integral Table."
+        )
+        st.markdown(
+            """
+Typical Metadata Table columns should include:
+- a sample filename column
+- sample-type information
+- any additional attributes needed for downstream filtering or grouping
+            """
+        )
+
+        if METADATA_HELP_PATH.exists():
+            st.image(
+                str(METADATA_HELP_PATH),
+                caption="Example of the expected Metadata Table structure",
+                use_container_width=True,
+            )
+        else:
+            st.warning("metadata_print.png was not found in the Assets folder.")
+
+    with tab3:
+        st.markdown("**3. Library Search Table**")
+        st.markdown(
+            "The Library Search Table contains the hits returned by the GNPS workflow. "
             "In practice, this corresponds to the **View All Library Hits** output generated "
             "after the second step of the workflow (**Library Search / Networking**)."
         )
@@ -1285,38 +1310,11 @@ with st.expander("🔎 Need help finding these files?", expanded=False):
         if LIBRARY_HELP_PATH.exists():
             st.image(
                 str(LIBRARY_HELP_PATH),
-                caption="Where to find the library-search table",
+                caption="Where to find the Library Search Table",
                 use_container_width=True,
             )
         else:
             st.warning("Library.png was not found in the Assets folder.")
-
-    with tab3:
-        st.markdown("**3. Metadata sheet**")
-        st.markdown(
-            "The metadata sheet describes the samples included in the analysis and should follow "
-            "the [GNPS metadata structure](https://ccms-ucsd.github.io/GNPSDocumentation/metadata/)."
-        )
-        st.markdown(
-            "Sample names in the metadata must match the sample columns in the GNPS Integral Table."
-        )
-        st.markdown(
-            """
-Typical metadata should include:
-- a sample filename column
-- sample-type information
-- any additional attributes needed for downstream filtering or grouping
-            """
-        )
-
-        if METADATA_HELP_PATH.exists():
-            st.image(
-                str(METADATA_HELP_PATH),
-                caption="Example of the expected metadata structure",
-                use_container_width=True,
-            )
-        else:
-            st.warning("metadata_print.png was not found in the Assets folder.")
 
 st.markdown('<div class="section-title">🧪 Try an example dataset</div>', unsafe_allow_html=True)
 st.markdown(
@@ -1362,7 +1360,7 @@ if st.session_state["use_example_dataset"]:
         st.caption("Preview only: showing the first 10 rows of each example file.")
 
         preview_tab1, preview_tab2, preview_tab3 = st.tabs(
-            ["GNPS Integral Table", "Metadata", "Library-search table"]
+            ["GNPS Integral Table", "Metadata Table", "Library Search Table"]
         )
 
         with preview_tab1:
@@ -1382,7 +1380,7 @@ if st.session_state["use_example_dataset"]:
             st.caption(f"{metadata_preview.shape[0]} rows × {metadata_preview.shape[1]} columns")
             render_preview_table(metadata_preview, max_rows=10, height=320, preview_label="Preview shown below (first 10 rows).")
             st.download_button(
-                "Download full metadata table",
+                "Download full Metadata Table",
                 data=MODEL_METADATA_PATH.read_bytes(),
                 file_name=MODEL_METADATA_PATH.name,
                 mime="application/octet-stream",
@@ -1394,7 +1392,7 @@ if st.session_state["use_example_dataset"]:
             st.caption(f"{library_preview.shape[0]} rows × {library_preview.shape[1]} columns")
             render_preview_table(library_preview, max_rows=10, height=320, preview_label="Preview shown below (first 10 rows).")
             st.download_button(
-                "Download full library-search table",
+                "Download full Library Search Table",
                 data=MODEL_LIBRARY_PATH.read_bytes(),
                 file_name=MODEL_LIBRARY_PATH.name,
                 mime="application/octet-stream",
@@ -1409,14 +1407,22 @@ with opt1:
     do_blank_removal = st.checkbox(
         "Blank removal",
         value=False,
-        help="Removes features whose blank-to-sample ratio is above the selected cutoff.",
+        help=(
+            "Removes features that show a high contribution from blanks relative to real samples. "
+            "This step helps exclude background, carryover, and other blank-associated signals."
+        ),
     )
 
 with opt2:
     do_balance_filter = st.checkbox(
         "Balance filter",
         value=False,
-        help="Keeps only features whose Balance_score is at or above the selected threshold.",
+        help=(
+            "Uses the GNPS/MSHub Balance Score, a metric that estimates how reproducible and "
+            "consistent the deconvoluted mass spectral pattern is across the dataset. "
+            "Higher values indicate greater confidence in the deconvolution. "
+            "This filter keeps only features whose Balance Score is at or above the selected threshold."
+        ),
     )
 
 with opt3:
@@ -1433,14 +1439,17 @@ with opt4:
     do_imputation = st.checkbox(
         "Imputation",
         value=False,
-        help="Replaces missing or zero values in the processed sample table using the selected imputation strategy.",
+        help="Replaces missing or zero values so downstream normalization and statistical analyses can be applied more consistently.",
     )
 
 with opt5:
     do_normalization = st.checkbox(
         "Normalization",
         value=False,
-        help="Applies the selected normalization method to the processed sample table.",
+        help=(
+            "Adjusts the processed sample table to reduce unwanted sample-to-sample variation "
+            "and improve comparability before downstream statistical analysis."
+        ),
     )
 
 with opt6:
@@ -1448,7 +1457,7 @@ with opt6:
         "Annotation",
         value=False,
         help=(
-            "Matches scan IDs from the processed GNPS Integral Table outputs against the optional Library Search file and "
+            "Matches scan IDs from the processed GNPS Integral Table outputs against the optional Library Search Table and "
             "returns the matching identifications."
         ),
     )
@@ -1458,7 +1467,7 @@ balance_threshold = 65
 attribute_filter_column = None
 attribute_filter_min_count = 3
 imputation_method = "Random low-value replacement"
-lod_divisor = 5.0
+lod_divisor = 5
 normalization_method = "None"
 
 if do_blank_removal:
@@ -1470,27 +1479,42 @@ if do_blank_removal:
         step=0.05,
         format="%.2f",
         key="blank_cutoff_input",
-        help="Features with blank/sample ratio above this value are removed from the sample table.",
+        help=(
+            "Features with a blank/sample ratio above this value are removed. "
+            "A common starting range is 0.1-0.3, with 0.30 as a practical default. "
+            "Lower values are more stringent and remove more blank-associated features; "
+            "higher values are less stringent and retain more features."
+        ),
     )
     blank_cutoff = st.session_state["blank_cutoff_input"]
 
 if do_balance_filter:
     st.number_input(
-        "Minimum balance score (%)",
+        "Minimum Balance Score (%)",
         min_value=0,
         max_value=100,
         value=65,
         step=1,
         key="balance_threshold_input",
-        help="Only features with Balance_score greater than or equal to this value are kept.",
+        help=(
+            "Minimum allowed Balance Score for retaining a feature. "
+            "Higher thresholds are more stringent and keep only features with more reproducible "
+            "deconvoluted spectral patterns. In GNPS, values above 60% are a reasonable starting point, "
+            "whereas values above 80% are more conservative."
+        ),
     )
     balance_threshold = st.session_state["balance_threshold_input"]
 
 if do_attribute_filter:
     metadata_attribute_options = []
-    if metadata_file is not None:
+    metadata_source_for_ui = metadata_file
+
+    if st.session_state["use_example_dataset"] and MODEL_METADATA_PATH.exists():
+        metadata_source_for_ui = load_example_file(MODEL_METADATA_PATH)
+
+    if metadata_source_for_ui is not None:
         try:
-            metadata_preview_df = read_metadata_table(metadata_file)
+            metadata_preview_df = read_metadata_table(metadata_source_for_ui)
             metadata_attribute_options = list(metadata_preview_df.columns)
         except Exception:
             metadata_attribute_options = []
@@ -1504,7 +1528,7 @@ if do_attribute_filter:
             help="Choose the metadata column whose subgroup levels will be used to count feature occurrence.",
         )
     else:
-        st.info("Upload a valid metadata table to choose the attribute occurrence filter column.")
+        st.info("Upload a valid Metadata Table to choose the attribute occurrence filter column.")
 
     st.number_input(
         "Minimum detections within a subgroup",
@@ -1555,13 +1579,13 @@ if do_annotation:
     if do_balance_filter:
         st.caption(
             f"The annotation step matches the scan IDs from the processed GNPS Integral Table outputs against the "
-            f"Library Search file and applies the same balance cutoff used in the Balance filter ({balance_threshold}%). "
+            f"Library Search Table and applies the same balance cutoff used in the Balance filter ({balance_threshold}%). "
             "Multiple matches per feature are preserved as separate rows."
         )
     else:
         st.caption(
             "The annotation step matches the scan IDs from the processed GNPS Integral Table outputs against the "
-            "Library Search file and returns all matching identifications without applying a Library Search balance cutoff. "
+            "Library Search Table and returns all matching identifications without applying a Library Search balance cutoff. "
             "Multiple matches per feature are preserved as separate rows."
         )
 
@@ -1573,6 +1597,17 @@ if do_normalization:
         key="normalization_method_select",
         help="Select how the processed sample table should be normalized after imputation.",
     )
+
+    if normalization_method == "TIC":
+        st.caption(
+            "TIC normalization scales each sample by its total signal, making samples more comparable despite differences in overall intensity."
+        )
+    elif normalization_method == "Center scaling":
+        st.caption(
+            "Center scaling standardizes each feature across samples, so high- and low-intensity features have a more comparable influence in downstream analyses."
+        )
+    else:
+        st.caption("No normalization will be applied.")
 
 st.write("")
 run_processing = st.button("Run processing")
@@ -1597,7 +1632,7 @@ if run_processing:
             st.stop()
 
     if active_feature_file is None or active_metadata_file is None:
-        st.warning("Please upload both the GNPS Integral Table and the metadata table, or load the example dataset.")
+        st.warning("Please upload both the GNPS Integral Table and the Metadata Table, or load the example dataset.")
     else:
         try:
             results = process_tables(
@@ -1754,7 +1789,7 @@ else:
         with st.container(border=True):
             st.write("**Annotation summary**")
             st.markdown(
-                f"- Library Search file: **{results['library_search_filename'] or 'not provided'}**"
+                f"- Library Search Table: **{results['library_search_filename'] or 'not provided'}**"
             )
             st.markdown(
                 f"- Sample scans used for matching: **{results['n_sample_scan_keys']}**"
@@ -1785,20 +1820,20 @@ else:
 
     workbook_sheets = {
         "Provided_GNPS_Integral_Table": results["feature_df"],
-        "Metadata": results["metadata_df"],
+        "Metadata_Table": results["metadata_df"],
         "Blank_Features": results["features_blank_df"],
         "Sample_Features": results["features_sample_before_balance_df"],
-        "Sample_features_Balance": results["features_sample_after_balance_df"],
+        "Sample_Features_Balance": results["features_sample_after_balance_df"],
     }
 
     if results["attribute_filter_requested"]:
-        workbook_sheets["Sample_features_Attribute"] = results["features_sample_after_attribute_df"]
+        workbook_sheets["Sample_Features_Attribute"] = results["features_sample_after_attribute_df"]
 
     if results["imputation_reference"] is not None:
-        workbook_sheets["Sample_features_imputed"] = results["features_sample_imputed_df"]
+        workbook_sheets["Sample_Features_Imputed"] = results["features_sample_imputed_df"]
 
     if results["do_normalization"]:
-        workbook_sheets["Sample_features_normalized"] = results["features_sample_normalized_df"]
+        workbook_sheets["Sample_Features_Normalized"] = results["features_sample_normalized_df"]
 
     if results["annotation_generated"]:
         workbook_sheets["Annotation_All_Features"] = results["all_features_clean_df"]
@@ -1890,7 +1925,7 @@ else:
     if results["annotation_requested"]:
         with st.expander("Annotation table: all library matches", expanded=False):
             st.write(
-                "This table contains the selected columns from the Library Search file, preserving all identifications."
+                "This table contains the selected columns from the Library Search Table, preserving all identifications."
             )
 
             if results["all_features_clean_df"].empty:
