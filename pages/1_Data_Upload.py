@@ -706,7 +706,14 @@ def find_lowest_positive_value(df, columns):
 
 
 
-def impute_missing_values(df, sample_cols, fallback_tables=None, seed=42):
+def impute_missing_values(
+    df,
+    sample_cols,
+    fallback_tables=None,
+    seed=42,
+    method="Random low-value replacement",
+    lod_divisor=5.0,
+):
     out = df.copy()
     fallback_tables = fallback_tables or []
     rng = np.random.default_rng(seed)
@@ -720,7 +727,15 @@ def impute_missing_values(df, sample_cols, fallback_tables=None, seed=42):
                 break
 
     if reference_value is None or reference_value <= 0:
-        return out, None, 0
+        return out, None, 0, None
+
+    method_clean = normalize_text(method)
+    lod_method_clean = normalize_text("LOD/X constant replacement")
+
+    if method_clean == lod_method_clean:
+        method_applied = "LOD/X constant replacement"
+    else:
+        method_applied = "Random low-value replacement"
 
     imputed_count = 0
 
@@ -730,13 +745,18 @@ def impute_missing_values(df, sample_cols, fallback_tables=None, seed=42):
         n_missing = int(missing_mask.sum())
 
         if n_missing > 0:
-            random_values = rng.uniform(1e-9, 1.0 - 1e-9, size=n_missing) * reference_value
-            numeric_col.loc[missing_mask] = random_values
+            if method_applied == "LOD/X constant replacement":
+                replacement_value = reference_value / float(lod_divisor)
+                numeric_col.loc[missing_mask] = replacement_value
+            else:
+                replacement_values = rng.uniform(1e-9, 1.0 - 1e-9, size=n_missing) * reference_value
+                numeric_col.loc[missing_mask] = replacement_values
+
             imputed_count += n_missing
 
         out[col] = numeric_col
 
-    return out, reference_value, imputed_count
+    return out, reference_value, imputed_count, method_applied
 
 
 
@@ -951,6 +971,8 @@ def process_tables(
     attribute_filter_column,
     attribute_filter_min_count,
     do_imputation,
+    imputation_method,
+    lod_divisor,
     do_normalization,
     normalization_method,
     library_search_file=None,
@@ -1032,14 +1054,17 @@ def process_tables(
     imputation_reference = None
     imputed_count = 0
     imputation_message = None
+    imputation_method_applied = None
 
     if do_imputation:
         fallback_tables = [after_attribute_df, after_balance_df, after_blank_df, enriched_df]
-        imputed_df, imputation_reference, imputed_count = impute_missing_values(
+        imputed_df, imputation_reference, imputed_count, imputation_method_applied = impute_missing_values(
             after_attribute_df,
             sample_cols,
             fallback_tables=fallback_tables,
             seed=42,
+            method=imputation_method,
+            lod_divisor=lod_divisor,
         )
 
         if imputation_reference is None:
@@ -1127,6 +1152,8 @@ def process_tables(
         "missing_percentage": missing_percentage,
         "imputation_reference": imputation_reference,
         "imputed_count": imputed_count,
+        "imputation_method": imputation_method_applied,
+        "imputation_lod_divisor": lod_divisor if imputation_method_applied == "LOD/X constant replacement" else None,
         "blank_removal_message": blank_removal_message,
         "attribute_filter_message": attribute_filter_message,
         "imputation_message": imputation_message,
@@ -1406,10 +1433,7 @@ with opt4:
     do_imputation = st.checkbox(
         "Imputation",
         value=False,
-        help=(
-            "Replaces missing or zero values in the processed sample table with random values below the lowest "
-            "observed positive value."
-        ),
+        help="Replaces missing or zero values in the processed sample table using the selected imputation strategy.",
     )
 
 with opt5:
@@ -1433,6 +1457,8 @@ blank_cutoff = 0.30
 balance_threshold = 65
 attribute_filter_column = None
 attribute_filter_min_count = 3
+imputation_method = "Random low-value replacement"
+lod_divisor = 5.0
 normalization_method = "None"
 
 if do_blank_removal:
@@ -1492,6 +1518,38 @@ if do_attribute_filter:
         ),
     )
     attribute_filter_min_count = st.session_state["attribute_filter_min_count_input"]
+
+if do_imputation:
+    imputation_method = st.selectbox(
+        "Imputation method",
+        options=["Random low-value replacement", "LOD/X constant replacement"],
+        index=0,
+        key="imputation_method_select",
+        help=(
+            "Random low-value replacement: replaces each missing or zero value with a random number below the lowest observed positive value. "
+            "LOD/X constant replacement: replaces all missing or zero values with the lowest observed positive value divided by X."
+        ),
+    )
+
+    if imputation_method == "Random low-value replacement":
+        st.caption(
+            "Random low-value replacement: each missing or zero value is replaced by a random number below the lowest observed positive value in the processed data."
+        )
+    else:
+        st.number_input(
+            "X value for LOD/X",
+            min_value=1,
+            value=5,
+            step=1,
+            key="lod_divisor_input",
+            help="Example: if X = 5, all missing or zero values will be replaced by LOD/5.",
+        )
+        lod_divisor = int(st.session_state["lod_divisor_input"])
+
+        st.caption(
+            f"LOD/X constant replacement: the lowest observed positive value is used as a practical LOD proxy. "
+            f"With the current setting, X = {lod_divisor}, so all missing or zero entries will be replaced by LOD/{lod_divisor}."
+        )
 
 if do_annotation:
     if do_balance_filter:
@@ -1553,6 +1611,8 @@ if run_processing:
                 attribute_filter_column=attribute_filter_column,
                 attribute_filter_min_count=attribute_filter_min_count,
                 do_imputation=do_imputation,
+                imputation_method=imputation_method,
+                lod_divisor=lod_divisor,
                 do_normalization=do_normalization,
                 normalization_method=normalization_method,
                 library_search_file=active_library_search_file,
@@ -1653,12 +1713,33 @@ else:
                 f"- Missing values in processed sample table: **{results['missing_percentage']:.1f}%**"
             )
 
+            st.markdown(
+                f"- Imputation method: **{results['imputation_method'] or 'not available'}**"
+            )
+
             if results["imputation_reference"] is not None:
                 st.markdown(
-                    f"- Lowest positive value used for imputation: **{results['imputation_reference']:.6g}**"
+                    f"- Lowest positive value used as reference: **{results['imputation_reference']:.6g}**"
                 )
             else:
-                st.markdown("- Lowest positive value used for imputation: **not available**")
+                st.markdown("- Lowest positive value used as reference: **not available**")
+
+            if results["imputation_method"] == "LOD/X constant replacement" and results["imputation_lod_divisor"] is not None:
+                x_value = int(results["imputation_lod_divisor"])
+                replacement_value = (
+                    results["imputation_reference"] / results["imputation_lod_divisor"]
+                    if results["imputation_reference"] is not None
+                    else None
+                )
+
+                if replacement_value is not None:
+                    st.markdown(
+                        f"- Setting: **LOD/{x_value}**, with replacement value = **{replacement_value:.6g}**"
+                    )
+                else:
+                    st.markdown(
+                        f"- Setting: **LOD/{x_value}**"
+                    )
 
             st.markdown(f"- Number of imputed values: **{results['imputed_count']}**")
 
