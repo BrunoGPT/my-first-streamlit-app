@@ -1488,23 +1488,6 @@ if do_blank_removal:
     )
     blank_cutoff = st.session_state["blank_cutoff_input"]
 
-if do_balance_filter:
-    st.number_input(
-        "Minimum Balance Score (%)",
-        min_value=0,
-        max_value=100,
-        value=65,
-        step=1,
-        key="balance_threshold_input",
-        help=(
-            "Minimum allowed Balance Score for retaining a feature. "
-            "Higher thresholds are more stringent and keep only features with more reproducible "
-            "deconvoluted spectral patterns. In GNPS, values above 60% are a reasonable starting point, "
-            "whereas values above 80% are more conservative."
-        ),
-    )
-    balance_threshold = st.session_state["balance_threshold_input"]
-
 if do_attribute_filter:
     metadata_attribute_options = []
     metadata_source_for_ui = metadata_file
@@ -1515,7 +1498,17 @@ if do_attribute_filter:
     if metadata_source_for_ui is not None:
         try:
             metadata_preview_df = read_metadata_table(metadata_source_for_ui)
-            metadata_attribute_options = list(metadata_preview_df.columns)
+
+            filename_aliases_normalized = {
+                normalize_text(candidate) for candidate in FILENAME_CANDIDATES
+            }
+
+            metadata_attribute_options = [
+                col
+                for idx, col in enumerate(metadata_preview_df.columns)
+                if idx != 0 and normalize_text(col) not in filename_aliases_normalized
+            ]
+
         except Exception:
             metadata_attribute_options = []
 
@@ -1525,7 +1518,7 @@ if do_attribute_filter:
             options=metadata_attribute_options,
             index=0,
             key="attribute_filter_column_select",
-            help="Choose the metadata column whose subgroup levels will be used to count feature occurrence.",
+            help="Choose the Metadata Table column whose subgroup levels will be used to count feature occurrence.",
         )
     else:
         st.info("Upload a valid Metadata Table to choose the attribute occurrence filter column.")
