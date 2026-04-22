@@ -1488,6 +1488,21 @@ if do_blank_removal:
     )
     blank_cutoff = st.session_state["blank_cutoff_input"]
 
+if do_balance_filter:
+    st.number_input(
+        "Minimum balance score (%)",
+        min_value=0,
+        max_value=100,
+        value=65,
+        step=1,
+        key="balance_threshold_input",
+        help=(
+            "Keeps only features whose Balance Score is at or above this value. "
+            "A common default is 65%."
+        ),
+    )
+    balance_threshold = st.session_state["balance_threshold_input"]
+
 if do_attribute_filter:
     metadata_attribute_options = []
     metadata_source_for_ui = metadata_file
