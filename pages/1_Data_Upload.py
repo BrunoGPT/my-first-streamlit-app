@@ -172,6 +172,7 @@ st.title("Data Upload")
 st.info(
     "📥 Upload the GNPS Integral Table and the Metadata Table, and optionally the Library Search Table for annotation; then choose the preprocessing steps you want to apply and run the processing."
 )
+st.warning("⚠️ Sample names in the GNPS Integral Table and Metadata Table should match.")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 INTEGRAL_HELP_PATH = BASE_DIR / "Assets" / "Integral_table.png"
@@ -258,6 +259,8 @@ LIBRARY_NUMERIC_COLUMNS = {
     "Balance_score(percentage)": "float",
 }
 
+RESERVED_FEATURE_COLUMNS = {"No:", "RT_min", "Balance_score"}
+
 # =========================================================
 # HELPERS
 # =========================================================
@@ -270,7 +273,7 @@ def normalize_text(value):
 
 
 
-def normalize_key(value):
+def clean_sample_name_text(value):
     if value is None:
         return ""
 
@@ -278,7 +281,26 @@ def normalize_key(value):
     if text == "":
         return ""
 
-    text = text.replace("\\", "/").split("/")[-1]
+    return text.replace("\\", "/").split("/")[-1].strip()
+
+
+
+def normalize_exact_sample_key(value):
+    text = clean_sample_name_text(value)
+    if text == "":
+        return ""
+
+    text = text.lower().strip()
+    text = NON_ALNUM_PATTERN.sub("", text)
+    return text
+
+
+
+def normalize_key(value):
+    text = clean_sample_name_text(value)
+    if text == "":
+        return ""
+
     text = Path(text).stem
     text = text.lower().strip()
     text = NON_ALNUM_PATTERN.sub("", text)
@@ -288,6 +310,151 @@ def normalize_key(value):
 
 def normalize_header_key(value):
     return NON_ALNUM_PATTERN.sub("", normalize_text(value))
+
+
+
+def extract_candidate_feature_columns(feature_df):
+    return [col for col in feature_df.columns if col not in RESERVED_FEATURE_COLUMNS]
+
+
+
+def summarize_name_list(names, limit=8):
+    cleaned = [str(name) for name in names if str(name).strip() != ""]
+    if not cleaned:
+        return ""
+
+    if len(cleaned) <= limit:
+        return ", ".join(cleaned)
+
+    shown = ", ".join(cleaned[:limit])
+    remaining = len(cleaned) - limit
+    return f"{shown}, ... (+{remaining} more)"
+
+
+
+def validate_sample_name_matching(feature_df, metadata_df, filename_col):
+    feature_columns = extract_candidate_feature_columns(feature_df)
+    metadata_names = [
+        row_value
+        for row_value in metadata_df[filename_col].tolist()
+        if clean_sample_name_text(row_value) != ""
+    ]
+
+    feature_exact_map = {}
+    feature_base_groups = {}
+    for col in feature_columns:
+        exact_key = normalize_exact_sample_key(col)
+        base_key = normalize_key(col)
+
+        if exact_key != "":
+            feature_exact_map[exact_key] = col
+
+        if base_key != "":
+            feature_base_groups.setdefault(base_key, [])
+            if col not in feature_base_groups[base_key]:
+                feature_base_groups[base_key].append(col)
+
+    metadata_exact_map = {}
+    metadata_base_groups = {}
+    for name in metadata_names:
+        exact_key = normalize_exact_sample_key(name)
+        base_key = normalize_key(name)
+
+        if exact_key != "":
+            metadata_exact_map[exact_key] = name
+
+        if base_key != "":
+            metadata_base_groups.setdefault(base_key, [])
+            if name not in metadata_base_groups[base_key]:
+                metadata_base_groups[base_key].append(name)
+
+    metadata_duplicate_base = {
+        key: values for key, values in metadata_base_groups.items() if len(values) > 1
+    }
+    if metadata_duplicate_base:
+        duplicate_examples = []
+        for values in metadata_duplicate_base.values():
+            duplicate_examples.append(summarize_name_list(values, limit=3))
+        raise ValueError(
+            "Some Metadata Table sample names become identical after removing file extensions. "
+            f"Please review these entries: {summarize_name_list(duplicate_examples, limit=4)}."
+        )
+
+    feature_duplicate_base = {
+        key: values for key, values in feature_base_groups.items() if len(values) > 1
+    }
+    if feature_duplicate_base:
+        duplicate_examples = []
+        for values in feature_duplicate_base.values():
+            duplicate_examples.append(summarize_name_list(values, limit=3))
+        raise ValueError(
+            "Some GNPS Integral Table sample names become identical after removing file extensions. "
+            f"Please review these entries: {summarize_name_list(duplicate_examples, limit=4)}."
+        )
+
+    feature_exact_keys = set(feature_exact_map.keys())
+    feature_base_keys = set(feature_base_groups.keys())
+    metadata_exact_keys = set(metadata_exact_map.keys())
+    metadata_base_keys = set(metadata_base_groups.keys())
+
+    metadata_matched_after_extension_removal = []
+    metadata_unmatched = []
+    for name in metadata_names:
+        exact_key = normalize_exact_sample_key(name)
+        base_key = normalize_key(name)
+
+        if exact_key in feature_exact_keys:
+            continue
+        if base_key in feature_base_keys:
+            metadata_matched_after_extension_removal.append(name)
+        else:
+            metadata_unmatched.append(name)
+
+    feature_matched_after_extension_removal = []
+    feature_unmatched = []
+    for col in feature_columns:
+        exact_key = normalize_exact_sample_key(col)
+        base_key = normalize_key(col)
+
+        if exact_key in metadata_exact_keys:
+            continue
+        if base_key in metadata_base_keys:
+            feature_matched_after_extension_removal.append(col)
+        else:
+            feature_unmatched.append(col)
+
+    if metadata_unmatched or feature_unmatched:
+        message_parts = [
+            "Sample name matching failed between the GNPS Integral Table and the Metadata Table."
+        ]
+
+        if metadata_unmatched:
+            message_parts.append(
+                "Metadata Table names not found in the GNPS Integral Table: "
+                f"{summarize_name_list(metadata_unmatched)}."
+            )
+
+        if feature_unmatched:
+            message_parts.append(
+                "GNPS Integral Table names not found in the Metadata Table: "
+                f"{summarize_name_list(feature_unmatched)}."
+            )
+
+        raise ValueError(" ".join(message_parts))
+
+    info_message = None
+    if metadata_matched_after_extension_removal or feature_matched_after_extension_removal:
+        info_message = (
+            "Sample names were matched after ignoring file extensions. "
+            "Please confirm that the sample identifiers are correct."
+        )
+
+    return {
+        "info_message": info_message,
+        "metadata_matched_after_extension_removal": metadata_matched_after_extension_removal,
+        "feature_matched_after_extension_removal": feature_matched_after_extension_removal,
+    }
+
 
 
 
@@ -550,33 +717,34 @@ def match_feature_columns_to_metadata(feature_df, metadata_df):
             "Please make sure it contains something like 'ATTRIBUTE_sampletype'."
         )
 
-    metadata_map = {}
+    metadata_map_exact = {}
+    metadata_map_base = {}
+
     for _, row in metadata_df.iterrows():
-        file_key = normalize_key(row[filename_col])
+        exact_key = normalize_exact_sample_key(row[filename_col])
+        base_key = normalize_key(row[filename_col])
         sample_type = classify_sample_type(row[sampletype_col])
 
-        if file_key != "":
-            metadata_map[file_key] = sample_type
+        if exact_key != "":
+            metadata_map_exact[exact_key] = sample_type
+
+        if base_key != "":
+            metadata_map_base[base_key] = sample_type
 
     sample_cols = []
     blank_cols = []
     other_cols = []
     unknown_cols = []
 
-    for col in feature_df.columns:
-        col_key = normalize_key(col)
+    for col in extract_candidate_feature_columns(feature_df):
+        exact_key = normalize_exact_sample_key(col)
+        base_key = normalize_key(col)
 
-        if col_key == "":
-            continue
-
-        if col_key in metadata_map:
-            matched_type = metadata_map[col_key]
-        else:
-            matched_type = None
-            for meta_key, meta_type in metadata_map.items():
-                if meta_key and (meta_key in col_key or col_key in meta_key):
-                    matched_type = meta_type
-                    break
+        matched_type = None
+        if exact_key in metadata_map_exact:
+            matched_type = metadata_map_exact[exact_key]
+        elif base_key in metadata_map_base:
+            matched_type = metadata_map_base[base_key]
 
         if matched_type == "sample":
             sample_cols.append(col)
@@ -592,30 +760,35 @@ def match_feature_columns_to_metadata(feature_df, metadata_df):
 
 
 def build_feature_column_metadata_map(feature_columns, metadata_df, filename_col):
-    metadata_rows = []
     metadata_exact_map = {}
+    metadata_base_map = {}
 
     for _, row in metadata_df.iterrows():
-        file_key = normalize_key(row[filename_col])
-        if file_key != "":
-            row_dict = row.to_dict()
-            metadata_rows.append((file_key, row_dict))
-            metadata_exact_map[file_key] = row_dict
+        exact_key = normalize_exact_sample_key(row[filename_col])
+        base_key = normalize_key(row[filename_col])
+
+        if exact_key == "" and base_key == "":
+            continue
+
+        row_dict = row.to_dict()
+
+        if exact_key != "":
+            metadata_exact_map[exact_key] = row_dict
+
+        if base_key != "":
+            metadata_base_map[base_key] = row_dict
 
     column_metadata_map = {}
 
     for col in feature_columns:
-        col_key = normalize_key(col)
-        if col_key == "":
-            continue
+        exact_key = normalize_exact_sample_key(col)
+        base_key = normalize_key(col)
 
-        matched_row = metadata_exact_map.get(col_key)
-
-        if matched_row is None:
-            for meta_key, row_dict in metadata_rows:
-                if meta_key and (meta_key in col_key or col_key in meta_key):
-                    matched_row = row_dict
-                    break
+        matched_row = None
+        if exact_key in metadata_exact_map:
+            matched_row = metadata_exact_map[exact_key]
+        elif base_key in metadata_base_map:
+            matched_row = metadata_base_map[base_key]
 
         if matched_row is not None:
             column_metadata_map[col] = matched_row
@@ -1034,6 +1207,12 @@ def process_tables(
     feature_df = read_feature_table(feature_file)
     metadata_df = read_metadata_table(metadata_file)
 
+    filename_col = find_best_column(metadata_df.columns, FILENAME_CANDIDATES)
+    if filename_col is None:
+        filename_col = metadata_df.columns[0]
+
+    sample_name_matching = validate_sample_name_matching(feature_df, metadata_df, filename_col)
+
     sample_cols, blank_cols, other_cols, unknown_cols, filename_col, sampletype_col = (
         match_feature_columns_to_metadata(feature_df, metadata_df)
     )
@@ -1043,6 +1222,7 @@ def process_tables(
         raise ValueError(
             "No sample columns were identified. Please check the Metadata Table and the GNPS Integral Table column names."
         )
+
 
     enriched_df = add_blank_metrics(feature_df, sample_cols, blank_cols)
 
@@ -1196,6 +1376,7 @@ def process_tables(
         "unknown_cols": unknown_cols,
         "filename_col": filename_col,
         "sampletype_col": sampletype_col,
+        "sample_name_matching_info": sample_name_matching["info_message"],
         "features_blank_df": features_blank_df,
         "features_sample_before_balance_df": features_sample_before_balance_df,
         "features_sample_after_balance_df": features_sample_after_balance_df,
@@ -1742,6 +1923,8 @@ if results is None:
 else:
     st.markdown("---")
 
+    if results.get("sample_name_matching_info"):
+        st.info(results["sample_name_matching_info"])
     if results["blank_removal_message"]:
         st.warning(results["blank_removal_message"])
 
@@ -1758,10 +1941,18 @@ else:
 
     summary_items = [
         ("Original features", results["n_original_features"]),
-        ("Blank features", results["n_blank_features"]),
-        ("After blank removal", results["n_after_blank"]),
-        ("After balance score filter", results["n_after_balance"]),
     ]
+
+    if results["blank_removal_requested"]:
+        summary_items.extend(
+            [
+                ("Blank features", results["n_blank_features"]),
+                ("After blank removal", results["n_after_blank"]),
+            ]
+        )
+
+    if results["balance_filter_requested"]:
+        summary_items.append(("After balance score filter", results["n_after_balance"]))
 
     if results["attribute_filter_requested"]:
         summary_items.append(("After attribute filter", results["n_after_attribute"]))
