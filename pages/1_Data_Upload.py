@@ -1592,6 +1592,11 @@ if st.session_state["use_example_dataset"]:
             "Model_Metadata, and Model_Library until you click 'Stop using example dataset'."
         )
 
+        st.warning(
+            "⚠️ The example dataset is already loaded and ready to use. "
+            "You do not need to download these files and upload them again."
+        )
+
         st.markdown("**Preview of the example files**")
         st.caption("Preview only: showing the first 10 rows of each example file.")
 
@@ -1839,12 +1844,13 @@ if do_normalization:
         options=["None", "TIC", "Center scaling"],
         index=0,
         key="normalization_method_select",
+        format_func=lambda x: "TIC (relative abundance)" if x == "TIC" else x,
         help="Select how the processed sample table should be normalized after imputation.",
     )
 
     if normalization_method == "TIC":
         st.caption(
-            "TIC normalization scales each sample by its total signal, making samples more comparable despite differences in overall intensity."
+            "TIC normalization scales each sample by its total signal, then multiplies by 100 to express values as relative abundance (%), making samples more comparable despite differences in overall intensity."
         )
     elif normalization_method == "Center scaling":
         st.caption(
