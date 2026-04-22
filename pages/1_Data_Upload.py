@@ -134,6 +134,31 @@ st.markdown(
         text-align: left;
         white-space: nowrap;
     }
+
+    .sidebar-phytochemistry {
+        text-align: center;
+        padding-top: 0.1rem;
+        padding-bottom: 0.25rem;
+    }
+
+    .sidebar-phytochemistry-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #1f2a44;
+        margin-bottom: 0.45rem;
+    }
+
+    .sidebar-phytochemistry-link a {
+        color: #0f5cc0;
+        text-decoration: none;
+        font-size: 0.9rem;
+        font-weight: 600;
+        line-height: 1.55;
+    }
+
+    .sidebar-phytochemistry-link a:hover {
+        text-decoration: underline;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -152,10 +177,40 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 INTEGRAL_HELP_PATH = BASE_DIR / "Assets" / "Integral_table.png"
 LIBRARY_HELP_PATH = BASE_DIR / "Assets" / "Library.png"
 METADATA_HELP_PATH = BASE_DIR / "Assets" / "metadata_print.png"
+PHYTOCHEMISTRY_LOGO_PATH = BASE_DIR / "Assets" / "logo.png"
 EXAMPLE_DATA_DIR = BASE_DIR / "example_data"
 MODEL_INTEGRAL_PATH = EXAMPLE_DATA_DIR / "Model_Integral_Table.xlsx"
 MODEL_METADATA_PATH = EXAMPLE_DATA_DIR / "Model_Metadata.xlsx"
 MODEL_LIBRARY_PATH = EXAMPLE_DATA_DIR / "Model_Library.xlsx"
+
+with st.sidebar:
+    st.markdown("<div style='height: 60vh;'></div>", unsafe_allow_html=True)
+
+    st.markdown(
+        """
+        <div class="sidebar-phytochemistry">
+            <div class="sidebar-phytochemistry-title">Phytochemistry Lab</div>
+            <div class="sidebar-phytochemistry-link">
+                <a href="https://www.ib.usp.br/mais-eventos/95-depto-de-biologia/conteudo-site-genetica-e-bio-evolutiva-ingles/1884-phytochemistry.html" target="_blank">
+                    Institute of Biosciences (IB)<br>University of São Paulo (USP)
+                </a>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    sidebar_logo_left, sidebar_logo_center, sidebar_logo_right = st.columns([1, 1.4, 1])
+    with sidebar_logo_center:
+        if PHYTOCHEMISTRY_LOGO_PATH.exists():
+            st.image(
+                str(PHYTOCHEMISTRY_LOGO_PATH),
+                use_container_width=True,
+                link="https://www.ib.usp.br/mais-eventos/95-depto-de-biologia/conteudo-site-genetica-e-bio-evolutiva-ingles/1884-phytochemistry.html",
+            )
+        else:
+            st.info("Phytochemistry logo file not found. Check the file name and path in the Assets folder.")
+
 
 # =========================================================
 # CONSTANTS AND PATTERNS
