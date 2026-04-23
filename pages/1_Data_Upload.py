@@ -999,35 +999,104 @@ def apply_tic_normalization(df, sample_cols):
 
 
 
-def apply_center_scaling(df, sample_cols):
+def apply_median_normalization(df, sample_cols):
     out = df.copy()
     out = coerce_numeric_columns(out, sample_cols)
 
-    values = out[sample_cols].copy()
-    row_means = values.mean(axis=1, skipna=True)
-    row_stds = values.std(axis=1, skipna=True, ddof=0).replace(0, np.nan)
+    for col in sample_cols:
+        positive_values = out.loc[out[col] > 0, col]
+        sample_median = positive_values.median(skipna=True)
 
-    centered_scaled = values.sub(row_means, axis=0).div(row_stds, axis=0)
-    centered_scaled = centered_scaled.fillna(0)
+        if pd.isna(sample_median) or sample_median <= 0:
+            raise ValueError(
+                f"Median normalization could not be applied because sample '{col}' "
+                "does not have a valid positive median intensity."
+            )
 
-    out[sample_cols] = centered_scaled
+        out[col] = (out[col] / sample_median) * 100
+
     return out
 
 
 
-def apply_normalization(df, sample_cols, method):
+def find_reference_scan_row(df, reference_scan_number):
+    if "No:" not in df.columns:
+        raise ValueError(
+            "Reference scan normalization requires a 'No:' column in the processed table."
+        )
+
+    reference_key = normalize_scan_key(reference_scan_number)
+    if reference_key == "":
+        raise ValueError(
+            "Please enter a correct reference scan number from the 'No:' column."
+        )
+
+    scan_keys = df["No:"].apply(normalize_scan_key)
+    matching_rows = df.loc[scan_keys == reference_key]
+
+    if matching_rows.empty:
+        available_scans = sorted(
+            {key for key in scan_keys.tolist() if key != ""},
+            key=lambda value: to_number(value) if pd.notna(to_number(value)) else float("inf"),
+        )
+        available_text = summarize_name_list(available_scans, limit=12)
+        raise ValueError(
+            "Please enter a correct reference scan number that is present in the 'No:' column. "
+            f"Available scan numbers include: {available_text}."
+        )
+
+    return matching_rows.iloc[0], reference_key
+
+
+
+def apply_reference_scan_normalization(df, sample_cols, reference_scan_number):
+    out = df.copy()
+    out = coerce_numeric_columns(out, sample_cols)
+
+    reference_row, reference_key = find_reference_scan_row(out, reference_scan_number)
+
+    invalid_reference_samples = []
+    for col in sample_cols:
+        reference_value = to_number(reference_row[col])
+
+        if pd.isna(reference_value) or reference_value <= 0:
+            invalid_reference_samples.append(col)
+            continue
+
+        out[col] = (out[col] / reference_value) * 100
+
+    if invalid_reference_samples:
+        raise ValueError(
+            "Reference scan normalization could not be applied because the selected "
+            f"reference scan ({reference_key}) has missing, zero, or negative intensity in "
+            f"these sample column(s): {summarize_name_list(invalid_reference_samples)}."
+        )
+
+    return out, reference_key
+
+
+
+def apply_normalization(df, sample_cols, method, reference_scan_number=None):
     method_clean = normalize_text(method)
 
     if method_clean in ["", "none"]:
-        return df.copy(), "None"
+        return df.copy(), "None", None
 
     if method_clean == "tic":
-        return apply_tic_normalization(df, sample_cols), "TIC"
+        return apply_tic_normalization(df, sample_cols), "TIC", None
 
-    if method_clean in ["center scaling", "center-scaling", "centerscaling"]:
-        return apply_center_scaling(df, sample_cols), "Center scaling"
+    if method_clean in ["median", "median normalization", "sample median", "sample median normalization"]:
+        return apply_median_normalization(df, sample_cols), "Median", None
 
-    return df.copy(), "None"
+    if method_clean in ["reference scan", "reference scan normalization", "normalization by reference scan"]:
+        normalized_df, reference_key = apply_reference_scan_normalization(
+            df,
+            sample_cols,
+            reference_scan_number,
+        )
+        return normalized_df, "Reference scan", reference_key
+
+    return df.copy(), "None", None
 
 
 
@@ -1201,6 +1270,7 @@ def process_tables(
     lod_divisor,
     do_normalization,
     normalization_method,
+    normalization_reference_scan=None,
     library_search_file=None,
     do_annotation=False,
 ):
@@ -1310,12 +1380,14 @@ def process_tables(
 
     normalized_df = imputed_df.copy()
     normalization_method_applied = "None"
+    normalization_reference_scan_applied = None
 
     if do_normalization:
-        normalized_df, normalization_method_applied = apply_normalization(
+        normalized_df, normalization_method_applied, normalization_reference_scan_applied = apply_normalization(
             imputed_df,
             sample_cols,
             normalization_method,
+            reference_scan_number=normalization_reference_scan,
         )
 
     features_sample_normalized_df = build_features_sample_output(normalized_df, sample_cols)
@@ -1402,6 +1474,7 @@ def process_tables(
         "attribute_filter_min_count": attribute_filter_min_count,
         "attribute_subgroup_sizes": attribute_subgroup_sizes,
         "normalization_method_applied": normalization_method_applied,
+        "normalization_reference_scan": normalization_reference_scan_applied,
         "blank_removal_requested": do_blank_removal,
         "balance_filter_requested": do_balance_filter,
         "imputation_requested": do_imputation,
@@ -1710,6 +1783,7 @@ attribute_filter_min_count = 3
 imputation_method = "Random low-value replacement"
 lod_divisor = 5
 normalization_method = "None"
+normalization_reference_scan = ""
 
 if do_blank_removal:
     st.number_input(
@@ -1841,7 +1915,7 @@ if do_annotation:
 if do_normalization:
     normalization_method = st.selectbox(
         "Normalization method",
-        options=["None", "TIC", "Center scaling"],
+        options=["None", "TIC", "Median", "Reference scan"],
         index=0,
         key="normalization_method_select",
         format_func=lambda x: "TIC (relative abundance)" if x == "TIC" else x,
@@ -1852,9 +1926,24 @@ if do_normalization:
         st.caption(
             "TIC normalization scales each sample by its total signal, then multiplies by 100 to express values as relative abundance (%), making samples more comparable despite differences in overall intensity."
         )
-    elif normalization_method == "Center scaling":
+    elif normalization_method == "Median":
         st.caption(
-            "Center scaling standardizes each feature across samples, so high- and low-intensity features have a more comparable influence in downstream analyses."
+            "Median normalization divides each sample column by that sample's positive median intensity, then multiplies by 100. This is a sample-wise normalization method."
+        )
+    elif normalization_method == "Reference scan":
+        normalization_reference_scan = st.text_input(
+            "Reference scan number from the 'No:' column",
+            value="",
+            key="normalization_reference_scan_input",
+            help=(
+                "Enter the scan number exactly as it appears in the 'No:' column. "
+                "Each sample column will be divided by the intensity of this scan in that same sample, then multiplied by 100."
+            ),
+        )
+
+        st.caption(
+            "Reference scan normalization uses the selected scan from the 'No:' column as the within-sample reference. "
+            "If the scan number is not found, the app will show an error asking for a valid scan number."
         )
     else:
         st.caption("No normalization will be applied.")
@@ -1900,6 +1989,7 @@ if run_processing:
                 lod_divisor=lod_divisor,
                 do_normalization=do_normalization,
                 normalization_method=normalization_method,
+                normalization_reference_scan=normalization_reference_scan,
                 library_search_file=active_library_search_file,
                 do_annotation=do_annotation,
             )
@@ -2044,6 +2134,11 @@ else:
             st.markdown(
                 f"- Normalization method applied: **{results['normalization_method_applied']}**"
             )
+
+            if results.get("normalization_reference_scan"):
+                st.markdown(
+                    f"- Reference scan used: **{results['normalization_reference_scan']}**"
+                )
 
     if results["annotation_requested"]:
         with st.container(border=True):
