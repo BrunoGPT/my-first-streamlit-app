@@ -172,7 +172,7 @@ st.title("Data Upload")
 st.info(
     "📥 Upload the GNPS Integral Table and the Metadata Table, and optionally the Library Search Table for annotation; then choose the preprocessing steps you want to apply and run the processing."
 )
-st.warning("⚠️ Sample names in the GNPS Integral Table and Metadata Table should match.")
+st.success("📌 Don't forget: sample names in the GNPS Integral Table and Metadata Table should match.")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 INTEGRAL_HELP_PATH = BASE_DIR / "Assets" / "Integral_table.png"
