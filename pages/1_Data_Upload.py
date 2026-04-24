@@ -1206,8 +1206,16 @@ def build_annotation_tables(
 
 
 
-def format_for_display_or_export(df):
+def move_core_feature_columns_first(df):
+    """Keep feature identifiers and quality metrics at the beginning of each table."""
     out = df.copy()
+    preferred = [col for col in ["No:", "RT_min", "Balance_score"] if col in out.columns]
+    remaining = [col for col in out.columns if col not in preferred]
+    return out[preferred + remaining]
+
+
+def format_for_display_or_export(df):
+    out = move_core_feature_columns_first(df)
 
     if "Balance_score" in out.columns:
         out["Balance_score"] = out["Balance_score"].apply(format_balance_score)
@@ -1217,6 +1225,37 @@ def format_for_display_or_export(df):
 
     return out
 
+
+def prepare_dataframe_for_excel_export(df):
+    """Prepare an Excel export while preserving true numeric Excel cell types."""
+    out = move_core_feature_columns_first(df)
+
+    protected_text_columns = {
+        "Compound_Name",
+        "npclassifier_superclass",
+        "npclassifier_class",
+        "npclassifier_pathway",
+    }
+
+    for col in out.columns:
+        if col in protected_text_columns:
+            continue
+
+        series_as_text = out[col].astype(str).str.strip()
+        non_empty = out[col].notna() & (series_as_text != "") & (series_as_text.str.lower() != "nan")
+
+        if not non_empty.any():
+            continue
+
+        converted = out[col].apply(to_number)
+        converted_fraction = converted[non_empty].notna().mean()
+
+        if converted_fraction >= 0.95:
+            out[col] = converted
+
+    out = out.replace([np.inf, -np.inf], np.nan)
+    out = out.where(pd.notna(out), None)
+    return out
 
 
 def render_preview_table(
@@ -1234,11 +1273,9 @@ def render_preview_table(
     )
 
 
-
 def dataframe_to_csv_bytes(df):
     export_df = format_for_display_or_export(df)
     return export_df.to_csv(index=False).encode("utf-8")
-
 
 
 def dataframes_to_excel_bytes(sheet_map):
@@ -1247,8 +1284,29 @@ def dataframes_to_excel_bytes(sheet_map):
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         for sheet_name, df in sheet_map.items():
             safe_name = re.sub(r"[\\/*?:\[\]]", "_", str(sheet_name))[:31]
-            export_df = format_for_display_or_export(df)
+            export_df = prepare_dataframe_for_excel_export(df)
             export_df.to_excel(writer, sheet_name=safe_name, index=False)
+
+            worksheet = writer.sheets[safe_name]
+            worksheet.freeze_panes = "A2"
+
+            for idx, column_name in enumerate(export_df.columns, start=1):
+                column_letter = worksheet.cell(row=1, column=idx).column_letter
+                worksheet.column_dimensions[column_letter].width = min(max(len(str(column_name)) + 2, 12), 35)
+
+                if column_name in {"RT_min", "MQScore", "Kovats_Index_calculated", "Ratio", "Sample_mean", "Blank_mean"}:
+                    number_format = "0.0000"
+                elif column_name in {"Balance_score", "Balance_score(percentage)"}:
+                    number_format = "0"
+                elif column_name in {"No:", "#Scan#"}:
+                    number_format = "0"
+                else:
+                    number_format = None
+
+                if number_format is not None:
+                    for column_cells in worksheet.iter_cols(min_col=idx, max_col=idx, min_row=2):
+                        for value_cell in column_cells:
+                            value_cell.number_format = number_format
 
     output.seek(0)
     return output.getvalue()
