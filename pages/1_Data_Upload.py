@@ -218,6 +218,8 @@ with st.sidebar:
 # =========================================================
 
 NON_ALNUM_PATTERN = re.compile(r"[^a-z0-9]+")
+SAMPLE_NAME_PATTERN = re.compile(r"[^a-z0-9+-]+")
+KNOWN_GCMS_FILE_EXTENSIONS = {".cdf"}
 RTS_PATTERN = re.compile(r"^\s*([0-9]+(?:[.,][0-9]+)?)\s*\(([\d]+(?:[.,][\d]+)?)%\)\s*$")
 
 FILENAME_CANDIDATES = [
@@ -285,26 +287,35 @@ def clean_sample_name_text(value):
 
 
 
-def normalize_exact_sample_key(value):
+def strip_known_gcms_file_extension(text):
+    suffix = Path(text).suffix.lower()
+    if suffix in KNOWN_GCMS_FILE_EXTENSIONS:
+        return text[: -len(suffix)]
+    return text
+
+
+
+def normalize_sample_name_key(value, remove_known_extension=False):
     text = clean_sample_name_text(value)
     if text == "":
         return ""
 
+    if remove_known_extension:
+        text = strip_known_gcms_file_extension(text)
+
     text = text.lower().strip()
-    text = NON_ALNUM_PATTERN.sub("", text)
+    text = SAMPLE_NAME_PATTERN.sub("", text)
     return text
+
+
+
+def normalize_exact_sample_key(value):
+    return normalize_sample_name_key(value, remove_known_extension=False)
 
 
 
 def normalize_key(value):
-    text = clean_sample_name_text(value)
-    if text == "":
-        return ""
-
-    text = Path(text).stem
-    text = text.lower().strip()
-    text = NON_ALNUM_PATTERN.sub("", text)
-    return text
+    return normalize_sample_name_key(value, remove_known_extension=True)
 
 
 
@@ -376,7 +387,7 @@ def validate_sample_name_matching(feature_df, metadata_df, filename_col):
         for values in metadata_duplicate_base.values():
             duplicate_examples.append(summarize_name_list(values, limit=3))
         raise ValueError(
-            "Some Metadata Table sample names become identical after removing file extensions. "
+            "Some Metadata Table sample names become identical after ignoring known GC-MS file extensions. "
             f"Please review these entries: {summarize_name_list(duplicate_examples, limit=4)}."
         )
 
@@ -388,7 +399,7 @@ def validate_sample_name_matching(feature_df, metadata_df, filename_col):
         for values in feature_duplicate_base.values():
             duplicate_examples.append(summarize_name_list(values, limit=3))
         raise ValueError(
-            "Some GNPS Integral Table sample names become identical after removing file extensions. "
+            "Some GNPS Integral Table sample names become identical after ignoring known GC-MS file extensions. "
             f"Please review these entries: {summarize_name_list(duplicate_examples, limit=4)}."
         )
 
@@ -445,7 +456,7 @@ def validate_sample_name_matching(feature_df, metadata_df, filename_col):
     info_message = None
     if metadata_matched_after_extension_removal or feature_matched_after_extension_removal:
         info_message = (
-            "Sample names were matched after ignoring file extensions. "
+            "Sample names were matched after ignoring known GC-MS file extensions. "
             "Please confirm that the sample identifiers are correct."
         )
 
